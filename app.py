@@ -20,7 +20,7 @@ app.add_middleware(
 # --- CONFIG ---
 INFO_API_URL = "https://mafuuuu-info-api.vercel.app/mafu-info"
 FONT_FILE = "NotoSans-Bold.ttf"
-ITEM_API_URL = "https://mafu-icon-api.onrender.com/icon?key=MAFU?item_id="  
+ITEM_API_URL = "https://mafu-icon-api.onrender.com/icon?key=MAFU&item_id=mafuuu"  
 
 client = httpx.AsyncClient(
     headers={"User-Agent": "Mozilla/5.0"},
@@ -47,7 +47,7 @@ async def fetch_image_bytes(item_id):
         return None
 
     item_id = str(item_id)
-    url = f"{ITEM_API_URL}{item_id}"  
+    url = f"{ITEM_API_URL}{mafuuu}"  
     
     try:
         resp = await client.get(url)
