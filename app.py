@@ -20,7 +20,7 @@ app.add_middleware(
 # --- CONFIG ---
 INFO_API_URL = "https://mafuuuu-info-api.vercel.app/mafu-info"
 FONT_FILE = "NotoSans-Bold.ttf"
-ITEM_API_URL = "https://mafu-icon-api.onrender.com/icon?key=MAFU=item_id"  # Fixed URL
+ITEM_API_URL = "https://mafu-icon-api.onrender.com/icon?key=MAFU&item_id={item_id}"  # Fixed URL with proper placeholder
 
 client = httpx.AsyncClient(
     headers={"User-Agent": "Mozilla/5.0"},
@@ -33,7 +33,6 @@ process_pool = ThreadPoolExecutor(max_workers=4)
 # --- UTILS ---
 
 def load_unicode_font(size):
-    """Load font with fallback"""
     try:
         font_path = os.path.join(os.path.dirname(__file__), FONT_FILE)
         if os.path.exists(font_path):
@@ -48,33 +47,27 @@ async def fetch_image_bytes(item_id):
         return None
 
     item_id = str(item_id)
-    # Fixed URL construction - replace item_id placeholder
-    url = ITEM_API_URL.replace("item_id", item_id)
+    url = ITEM_API_URL.format(item_id=item_id)  # Fixed: Use .format() to replace placeholder
     
     try:
         resp = await client.get(url)
         if resp.status_code == 200:
             return resp.content
-    except Exception as e:
-        print(f"Error fetching image {item_id}: {e}")
+    except:
         return None
     
     return None
 
 def bytes_to_image(img_bytes):
-    """Convert bytes to PIL Image or return transparent placeholder"""
     if img_bytes:
-        try:
-            return Image.open(io.BytesIO(img_bytes)).convert("RGBA")
-        except:
-            pass
+        return Image.open(io.BytesIO(img_bytes)).convert("RGBA")
     return Image.new('RGBA', (100, 100), (0, 0, 0, 0))
 
 def process_banner_image(data, avatar_bytes, banner_bytes, pin_bytes):
     """Combine avatar, banner, pin, and text into final PNG."""
     avatar_img = bytes_to_image(avatar_bytes)
     banner_img = bytes_to_image(banner_bytes)
-    pin_img = bytes_to_image(pin_bytes) if pin_bytes else None
+    pin_img = bytes_to_image(pin_bytes)
 
     level = str(data.get("AccountLevel", "0"))
     name = data.get("AccountName", "Unknown")
@@ -98,8 +91,8 @@ def process_banner_image(data, avatar_bytes, banner_bytes, pin_bytes):
         new_banner_w = int(TARGET_HEIGHT * (b_w / b_h) * 2.0)
         banner_img = banner_img.resize((new_banner_w, TARGET_HEIGHT), Image.LANCZOS)
     else:
-        banner_img = Image.new("RGBA", (800, 400), (50, 50, 50, 255))
-        new_banner_w = 800
+        banner_img = Image.new("RGBA", (800, 400), (50, 50, 50))
+        new_banner_w = 400
 
     final_w = TARGET_HEIGHT + new_banner_w
     final_h = TARGET_HEIGHT
@@ -109,65 +102,44 @@ def process_banner_image(data, avatar_bytes, banner_bytes, pin_bytes):
     
     draw = ImageDraw.Draw(combined)
     
-    font_large = load_unicode_font(60)  # Reduced from 125 for safety
-    font_small = load_unicode_font(40)  # Reduced from 95 for safety
-    font_level = load_unicode_font(36)  # Reduced from 50 for safety
+    font_large = load_unicode_font(125) 
+    font_small = load_unicode_font(95) 
+    font_level = load_unicode_font(50)
 
     text_x = TARGET_HEIGHT + 40 
     text_y = 40 
     
     stroke_col, text_col = "black", "white"
-    
-    def draw_text_with_stroke(x, y, text, font, stroke_width=3):
-        """Draw text with outline/stroke effect"""
-        if not text:
-            return
-        # Draw stroke
-        for dx in range(-stroke_width, stroke_width + 1):
-            for dy in range(-stroke_width, stroke_width + 1):
-                if dx != 0 or dy != 0:
-                    draw.text((x + dx, y + dy), text, font=font, fill=stroke_col)
-        # Draw main text
+    def draw_text_with_stroke(x, y, text, font, size):
+        for dx in range(-size, size + 1):
+            for dy in range(-size, size + 1):
+                draw.text((x + dx, y + dy), text, font=font, fill=stroke_col)
         draw.text((x, y), text, font=font, fill=text_col)
 
-    # Draw name
-    if name:
-        draw_text_with_stroke(text_x + 25, text_y, name, font_large)
-    
-    # Draw guild name
-    if guild:
-        draw_text_with_stroke(text_x + 25, text_y + 100, guild, font_small)
+    draw_text_with_stroke(text_x + 25, text_y, name, font_large, 4)
+    draw_text_with_stroke(text_x + 25, text_y + 200, guild, font_small, 3)
 
-    # Draw pin/icon if available
     if pin_img and pin_img.size != (100, 100):
         pin_size = 130 
         pin_img = pin_img.resize((pin_size, pin_size), Image.LANCZOS)
         combined.paste(pin_img, (0, TARGET_HEIGHT - pin_size), pin_img)
 
-    # Draw level badge
     level_txt = f"Lvl.{level}"
     try:
-        # Get text dimensions
-        temp_img = Image.new('RGBA', (1, 1))
-        temp_draw = ImageDraw.Draw(temp_img)
-        bbox = temp_draw.textbbox((0, 0), level_txt, font=font_level)
-        text_w = bbox[2] - bbox[0]
-        text_h = bbox[3] - bbox[1]
+        bbox = draw.textbbox((0, 0), level_txt, font=font_level)
+        text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
     except:
-        text_w = len(level_txt) * 20
-        text_h = 30
+        text_w, text_h = len(level_txt) * 20, 40
 
-    padding_x, padding_y = 25, 16
-    box_x = final_w - (text_w + padding_x * 2)
-    box_y = final_h - (text_h + padding_y * 2)
+    px, py = 25, 16
+    box_x = final_w - (text_w + px * 2)
+    box_y = final_h - (text_h + py * 2)
     
-    # Draw black background for level
     draw.rectangle([box_x, box_y, final_w, final_h], fill="black")
-    draw.text((box_x + padding_x, box_y + padding_y - 6), level_txt, font=font_level, fill="white")
+    draw.text((box_x + px, box_y + py - 6), level_txt, font=font_level, fill="white")
 
-    # Convert to bytes
     img_io = io.BytesIO()
-    combined.save(img_io, 'PNG', optimize=True)
+    combined.save(img_io, 'PNG')
     img_io.seek(0)
     return img_io
 
@@ -190,44 +162,34 @@ async def get_banner(uid: str):
         raise HTTPException(status_code=400, detail="UID required")
 
     try:
-        # Fetch user data from info API
         resp = await client.get(f"{INFO_API_URL}?uid={uid}")
         resp.raise_for_status()
         data = resp.json()
 
-        print(f"API Response for UID {uid}: {data}")  # Debug log
-
-        # Extract data - adjust keys based on actual API response
+        # --- Adjust to your API keys ---
         basic_info = data.get("basicInfo", {})
         profile_info = data.get("profileInfo", {})
         clan_info = data.get("clanBasicInfo", {})
 
-        # Get IDs for images
         avatar_id = profile_info.get("headPic") or basic_info.get("headPic")
         banner_id = basic_info.get("bannerId")
         pin_id = basic_info.get("pinId") or basic_info.get("title")
 
-        # Fetch images concurrently
-        tasks = [
-            fetch_image_bytes(avatar_id),
-            fetch_image_bytes(banner_id),
-            fetch_image_bytes(pin_id) if pin_id else asyncio.sleep(0)
-        ]
-        
-        results = await asyncio.gather(*tasks)
-        avatar_bytes = results[0]
-        banner_bytes = results[1]
-        pin_bytes = results[2] if len(results) > 2 and results[2] is not None else None
+        avatar_task = fetch_image_bytes(avatar_id)
+        banner_task = fetch_image_bytes(banner_id)
+        pin_task = fetch_image_bytes(pin_id) if (pin_id and str(pin_id) != "0") else asyncio.sleep(0)
 
-        # Prepare banner data
+        results = await asyncio.gather(avatar_task, banner_task, pin_task)
+        avatar_bytes, banner_bytes, pin_bytes = results[0], results[1], results[2]
+        if pin_bytes is None: pin_bytes = b''
+
+        loop = asyncio.get_event_loop()
         banner_data = {
-            "AccountLevel": basic_info.get("level") or basic_info.get("AccountLevel") or 0,
-            "AccountName": basic_info.get("nickname") or basic_info.get("AccountName") or "Unknown",
-            "GuildName": clan_info.get("GuildName") or clan_info.get("guildName") or ""
+            "AccountLevel": basic_info.get("level") or 0,
+            "AccountName": basic_info.get("nickname") or "Unknown",
+            "GuildName": clan_info.get("GuildName") or ""
         }
 
-        # Process image in thread pool
-        loop = asyncio.get_event_loop()
         img_io = await loop.run_in_executor(
             process_pool,
             process_banner_image,
@@ -237,23 +199,13 @@ async def get_banner(uid: str):
         return Response(
             content=img_io.getvalue(),
             media_type="image/png",
-            headers={
-                "Cache-Control": "public, max-age=300",
-                "X-UID": uid
-            }
+            headers={"Cache-Control": "public, max-age=300"}
         )
 
-    except httpx.HTTPStatusError as e:
-        print(f"HTTP Error: {e}")
-        raise HTTPException(status_code=e.response.status_code, 
-                          detail=f"Info API returned error: {e.response.status_code}")
     except httpx.RequestError as e:
-        print(f"Request Error: {e}")
         raise HTTPException(status_code=502, detail=f"Info API request failed: {e}")
     except Exception as e:
-        print(f"Unexpected Error: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- SHUTDOWN ---
